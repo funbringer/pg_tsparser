@@ -33,7 +33,7 @@ PG_FUNCTION_INFO_V1(tsparser_lextype);
 PG_FUNCTION_INFO_V1(tsparser_headline);
 
 /* Define me to enable tracing of parser behavior */
-/* #define WPARSER_TRACE */
+#define WPARSER_TRACE
 
 /* Output token categories */
 
@@ -60,8 +60,13 @@ PG_FUNCTION_INFO_V1(tsparser_headline);
 #define SIGNEDINT		21
 #define UNSIGNEDINT		22
 #define XMLENTITY		23
-
-#define LASTNUM			23
+#define NUMPARTUWORD	24
+#define PARTUWORD		25
+#define ASCIIPARTUWORD	26
+#define NUMUWORD		27
+#define ASCIIUWORD		28
+#define UWORD			29
+#define LASTNUM			29
 
 static const char *const tok_alias[] = {
 	"",
@@ -87,7 +92,13 @@ static const char *const tok_alias[] = {
 	"float",
 	"int",
 	"uint",
-	"entity"
+	"entity",
+	"uword_numpart",
+	"uword_part",
+	"uword_asciipart",
+	"numuword",
+	"asciiuword",
+	"uword"
 };
 
 static const char *const lex_descr[] = {
@@ -114,7 +125,13 @@ static const char *const lex_descr[] = {
 	"Decimal notation",
 	"Signed integer",
 	"Unsigned integer",
-	"XML entity"
+	"XML entity",
+	"Underscored word part, letters and digits",
+	"Underscored word part, all letters",
+	"Underscored word part, all ASCII",
+	"Underscored word, letters and digits",
+	"Underscored word part, all ASCII",
+	"Underscored word part, all letters",
 };
 
 
@@ -201,6 +218,19 @@ typedef enum
 	TPS_InHyphenAsciiWordPart,
 	TPS_InHyphenNumWordPart,
 	TPS_InHyphenUnsignedInt,
+	TPS_InUnderscoreAsciiWordFirst,
+	TPS_InUnderscoreAsciiWord,
+	TPS_InUnderscoreWordFirst,
+	TPS_InUnderscoreWord,
+	TPS_InUnderscoreNumWordFirst,
+	TPS_InUnderscoreNumWord,
+	TPS_InUnderscoreDigitLookahead,
+	TPS_InParseUnderscore,
+	TPS_InParseUnderscoreUnderscore,
+	TPS_InUnderscoreWordPart,
+	TPS_InUnderscoreAsciiWordPart,
+	TPS_InUnderscoreNumWordPart,
+	TPS_InUnderscoreUnsignedInt,
 	TPS_Null					/* last state (fake value) */
 } TParserState;
 
@@ -701,7 +731,7 @@ SpecialFURL(TParser *prs)
 }
 
 static void
-SpecialHyphen(TParser *prs)
+SpecialHyphenUnderscore(TParser *prs)
 {
 	prs->state->posbyte -= prs->state->lenbytetoken;
 	prs->state->poschar -= prs->state->lenchartoken;
@@ -1103,7 +1133,7 @@ static const TParserStateActionItem actionTPS_InAsciiWord[] = {
 	{p_iseqC, '-', A_PUSH, TPS_InHostFirstAN, 0, NULL},
 	{p_iseqC, '-', A_PUSH, TPS_InHyphenAsciiWordFirst, 0, NULL},
 	{p_iseqC, '_', A_PUSH, TPS_InHostFirstAN, 0, NULL},
-	{p_iseqC, '_', A_PUSH, TPS_InHyphenAsciiWordFirst, 0, NULL},
+	{p_iseqC, '_', A_PUSH, TPS_InUnderscoreAsciiWordFirst, 0, NULL},
 	{p_iseqC, '@', A_PUSH, TPS_InEmail, 0, NULL},
 	{p_iseqC, ':', A_PUSH, TPS_InProtocolFirst, 0, NULL},
 	{p_iseqC, '/', A_PUSH, TPS_InFileFirst, 0, NULL},
@@ -1120,7 +1150,7 @@ static const TParserStateActionItem actionTPS_InWord[] = {
 	{p_isspecial, 0, A_NEXT, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InNumWord, 0, NULL},
 	{p_iseqC, '-', A_PUSH, TPS_InHyphenWordFirst, 0, NULL},
-	{p_iseqC, '_', A_PUSH, TPS_InHyphenWordFirst, 0, NULL},
+	{p_iseqC, '_', A_PUSH, TPS_InUnderscoreWordFirst, 0, NULL},
 	{NULL, 0, A_BINGO, TPS_Base, WORD_T, NULL}
 };
 
@@ -1135,7 +1165,7 @@ static const TParserStateActionItem actionTPS_InUnsignedInt[] = {
 	{p_iseqC, '_', A_PUSH, TPS_InHostFirstAN, 0, NULL},
 	{p_iseqC, '@', A_PUSH, TPS_InEmail, 0, NULL},
 	{p_iseqC, '-', A_PUSH, TPS_InHyphenNumWordFirst, 0, NULL},
-	{p_iseqC, '_', A_PUSH, TPS_InHyphenNumWordFirst, 0, NULL},
+	{p_iseqC, '_', A_PUSH, TPS_InUnderscoreNumWordFirst, 0, NULL},
 	{p_isasclet, 0, A_PUSH, TPS_InHost, 0, NULL},
 	{p_isalpha, 0, A_NEXT, TPS_InNumWord, 0, NULL},
 	{p_isspecial, 0, A_NEXT, TPS_InNumWord, 0, NULL},
@@ -1445,7 +1475,7 @@ static const TParserStateActionItem actionTPS_InHostDomainSecond[] = {
 };
 
 static const TParserStateActionItem actionTPS_InHostDomain[] = {
-	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InHostAsciiWord, HOST, SpecialHyphen},
+	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InHostAsciiWord, HOST, SpecialHyphenUnderscore},
 	{p_isasclet, 0, A_NEXT, TPS_InHostDomain, 0, NULL},
 	{p_isdigit, 0, A_PUSH, TPS_InHost, 0, NULL},
 	{p_iseqC, ':', A_PUSH, TPS_InPortFirst, 0, NULL},
@@ -1456,7 +1486,7 @@ static const TParserStateActionItem actionTPS_InHostDomain[] = {
 	{p_isdigit, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isstophost, 0, A_BINGO | A_CLRALL, TPS_InURLPathStart, HOST, NULL},
 	{p_iseqC, '/', A_PUSH, TPS_InFURL, 0, NULL},
-	{NULL, 0, A_BINGO | A_CLRALL, TPS_InHostAsciiWord, HOST, SpecialHyphen}
+	{NULL, 0, A_BINGO | A_CLRALL, TPS_InHostAsciiWord, HOST, SpecialHyphenUnderscore}
 };
 
 static const TParserStateActionItem actionTPS_InHostAsciiWord[] = {
@@ -1622,14 +1652,14 @@ static const TParserStateActionItem actionTPS_InHyphenAsciiWordFirst[] = {
 };
 
 static const TParserStateActionItem actionTPS_InHyphenAsciiWord[] = {
-	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, ASCIIHWORD, SpecialHyphen},
+	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, ASCIIHWORD, SpecialHyphenUnderscore},
 	{p_isasclet, 0, A_NEXT, TPS_InHyphenAsciiWord, 0, NULL},
 	{p_isalpha, 0, A_NEXT, TPS_InHyphenWord, 0, NULL},
 	{p_isspecial, 0, A_NEXT, TPS_InHyphenWord, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InHyphenNumWord, 0, NULL},
 	{p_iseqC, '-', A_PUSH, TPS_InHyphenAsciiWordFirst, 0, NULL},
-	{p_iseqC, '_', A_PUSH, TPS_InHyphenAsciiWordFirst, 0, NULL},
-	{NULL, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, ASCIIHWORD, SpecialHyphen}
+	{p_iseqC, '_', A_PUSH, TPS_InUnderscoreAsciiWordFirst, 0, NULL},
+	{NULL, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, ASCIIHWORD, SpecialHyphenUnderscore}
 };
 
 static const TParserStateActionItem actionTPS_InHyphenWordFirst[] = {
@@ -1640,13 +1670,13 @@ static const TParserStateActionItem actionTPS_InHyphenWordFirst[] = {
 };
 
 static const TParserStateActionItem actionTPS_InHyphenWord[] = {
-	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, HWORD, SpecialHyphen},
+	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, HWORD, SpecialHyphenUnderscore},
 	{p_isalpha, 0, A_NEXT, TPS_InHyphenWord, 0, NULL},
 	{p_isspecial, 0, A_NEXT, TPS_InHyphenWord, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InHyphenNumWord, 0, NULL},
 	{p_iseqC, '-', A_PUSH, TPS_InHyphenWordFirst, 0, NULL},
-	{p_iseqC, '_', A_PUSH, TPS_InHyphenWordFirst, 0, NULL},
-	{NULL, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, HWORD, SpecialHyphen}
+	{p_iseqC, '_', A_PUSH, TPS_InUnderscoreWordFirst, 0, NULL},
+	{NULL, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, HWORD, SpecialHyphenUnderscore}
 };
 
 static const TParserStateActionItem actionTPS_InHyphenNumWordFirst[] = {
@@ -1657,13 +1687,13 @@ static const TParserStateActionItem actionTPS_InHyphenNumWordFirst[] = {
 };
 
 static const TParserStateActionItem actionTPS_InHyphenNumWord[] = {
-	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, NUMHWORD, SpecialHyphen},
+	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, NUMHWORD, SpecialHyphenUnderscore},
 	{p_isalnum, 0, A_NEXT, TPS_InHyphenNumWord, 0, NULL},
 	{p_isspecial, 0, A_NEXT, TPS_InHyphenNumWord, 0, NULL},
 	{p_iseqC, '.', A_PUSH, TPS_InHyphenNumWordFirst, 0, NULL},
 	{p_iseqC, '-', A_PUSH, TPS_InHyphenNumWordFirst, 0, NULL},
-	{p_iseqC, '_', A_PUSH, TPS_InHyphenNumWordFirst, 0, NULL},
-	{NULL, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, NUMHWORD, SpecialHyphen}
+	{p_iseqC, '_', A_PUSH, TPS_InUnderscoreNumWordFirst, 0, NULL},
+	{NULL, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, NUMHWORD, SpecialHyphenUnderscore}
 };
 
 static const TParserStateActionItem actionTPS_InHyphenDigitLookahead[] = {
@@ -1680,7 +1710,7 @@ static const TParserStateActionItem actionTPS_InParseHyphen[] = {
 	{p_isalpha, 0, A_NEXT, TPS_InHyphenWordPart, 0, NULL},
 	{p_isdigit, 0, A_PUSH, TPS_InHyphenNumWordPart, 0, NULL},
 	{p_iseqC, '-', A_PUSH, TPS_InParseHyphenHyphen, 0, NULL},
-	{p_iseqC, '_', A_PUSH, TPS_InParseHyphenHyphen, 0, NULL},
+	{p_iseqC, '_', A_PUSH, TPS_InParseUnderscoreUnderscore, 0, NULL},
 	{NULL, 0, A_RERUN, TPS_Base, 0, NULL}
 };
 
@@ -1721,6 +1751,117 @@ static const TParserStateActionItem actionTPS_InHyphenUnsignedInt[] = {
 	{p_isdigit, 0, A_NEXT, TPS_Null, 0, NULL},
 	{p_isalpha, 0, A_CLEAR, TPS_InHyphenNumWordPart, 0, NULL},
 	{p_isspecial, 0, A_CLEAR, TPS_InHyphenNumWordPart, 0, NULL},
+	{NULL, 0, A_POP, TPS_Null, 0, NULL}
+};
+
+static const TParserStateActionItem actionTPS_InUnderscoreAsciiWordFirst[] = {
+	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
+	{p_isasclet, 0, A_NEXT, TPS_InUnderscoreAsciiWord, 0, NULL},
+	{p_isalpha, 0, A_NEXT, TPS_InUnderscoreWord, 0, NULL},
+	{p_isdigit, 0, A_NEXT, TPS_InUnderscoreNumWord, 0, NULL},
+	{NULL, 0, A_POP, TPS_Null, 0, NULL}
+};
+
+static const TParserStateActionItem actionTPS_InUnderscoreAsciiWord[] = {
+	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InParseUnderscore, ASCIIUWORD, SpecialHyphenUnderscore},
+	{p_isasclet, 0, A_NEXT, TPS_InUnderscoreAsciiWord, 0, NULL},
+	{p_isalpha, 0, A_NEXT, TPS_InUnderscoreWord, 0, NULL},
+	{p_isspecial, 0, A_NEXT, TPS_InUnderscoreWord, 0, NULL},
+	{p_isdigit, 0, A_NEXT, TPS_InUnderscoreNumWord, 0, NULL},
+	{p_iseqC, '-', A_PUSH, TPS_InHyphenAsciiWordFirst, 0, NULL},
+	{p_iseqC, '_', A_PUSH, TPS_InUnderscoreAsciiWordFirst, 0, NULL},
+	{NULL, 0, A_BINGO | A_CLRALL, TPS_InParseUnderscore, ASCIIUWORD, SpecialHyphenUnderscore}
+};
+
+static const TParserStateActionItem actionTPS_InUnderscoreWordFirst[] = {
+	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
+	{p_isalpha, 0, A_NEXT, TPS_InUnderscoreWord, 0, NULL},
+	{p_isdigit, 0, A_NEXT, TPS_InUnderscoreNumWord, 0, NULL},
+	{NULL, 0, A_POP, TPS_Null, 0, NULL}
+};
+
+static const TParserStateActionItem actionTPS_InUnderscoreWord[] = {
+	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InParseUnderscore, UWORD, SpecialHyphenUnderscore},
+	{p_isalpha, 0, A_NEXT, TPS_InUnderscoreWord, 0, NULL},
+	{p_isspecial, 0, A_NEXT, TPS_InUnderscoreWord, 0, NULL},
+	{p_isdigit, 0, A_NEXT, TPS_InUnderscoreNumWord, 0, NULL},
+	{p_iseqC, '-', A_PUSH, TPS_InHyphenWordFirst, 0, NULL},
+	{p_iseqC, '_', A_PUSH, TPS_InUnderscoreWordFirst, 0, NULL},
+	{NULL, 0, A_BINGO | A_CLRALL, TPS_InParseUnderscore, UWORD, SpecialHyphenUnderscore}
+};
+
+static const TParserStateActionItem actionTPS_InUnderscoreNumWordFirst[] = {
+	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
+	{p_isalpha, 0, A_NEXT, TPS_InUnderscoreNumWord, 0, NULL},
+	{p_isdigit, 0, A_NEXT, TPS_InUnderscoreNumWord, 0, NULL},
+	{NULL, 0, A_POP, TPS_Null, 0, NULL}
+};
+
+static const TParserStateActionItem actionTPS_InUnderscoreNumWord[] = {
+	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InParseUnderscore, NUMUWORD, SpecialHyphenUnderscore},
+	{p_isalnum, 0, A_NEXT, TPS_InUnderscoreNumWord, 0, NULL},
+	{p_isspecial, 0, A_NEXT, TPS_InUnderscoreNumWord, 0, NULL},
+	{p_iseqC, '.', A_PUSH, TPS_InUnderscoreNumWordFirst, 0, NULL},
+	{p_iseqC, '-', A_PUSH, TPS_InHyphenNumWordFirst, 0, NULL},
+	{p_iseqC, '_', A_PUSH, TPS_InUnderscoreNumWordFirst, 0, NULL},
+	{NULL, 0, A_BINGO | A_CLRALL, TPS_InParseUnderscore, NUMUWORD, SpecialHyphenUnderscore}
+};
+
+static const TParserStateActionItem actionTPS_InUnderscoreDigitLookahead[] = {
+	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
+	{p_isdigit, 0, A_NEXT, TPS_InUnderscoreDigitLookahead, 0, NULL},
+	{p_isalpha, 0, A_NEXT, TPS_InUnderscoreNumWord, 0, NULL},
+	{p_isspecial, 0, A_NEXT, TPS_InUnderscoreNumWord, 0, NULL},
+	{NULL, 0, A_POP, TPS_Null, 0, NULL}
+};
+
+static const TParserStateActionItem actionTPS_InParseUnderscore[] = {
+	{p_isEOF, 0, A_RERUN, TPS_Base, 0, NULL},
+	{p_isasclet, 0, A_NEXT, TPS_InUnderscoreAsciiWordPart, 0, NULL},
+	{p_isalpha, 0, A_NEXT, TPS_InUnderscoreWordPart, 0, NULL},
+	{p_isdigit, 0, A_PUSH, TPS_InUnderscoreNumWordPart, 0, NULL},
+	{p_iseqC, '-', A_PUSH, TPS_InParseHyphenHyphen, 0, NULL},
+	{p_iseqC, '_', A_PUSH, TPS_InParseUnderscoreUnderscore, 0, NULL},
+	{NULL, 0, A_RERUN, TPS_Base, 0, NULL}
+};
+
+static const TParserStateActionItem actionTPS_InParseUnderscoreUnderscore[] = {
+	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
+	{p_isalnum, 0, A_BINGO | A_CLEAR, TPS_InParseUnderscore, SPACE, NULL},
+	{p_isspecial, 0, A_BINGO | A_CLEAR, TPS_InParseUnderscore, SPACE, NULL},
+	{NULL, 0, A_POP, TPS_Null, 0, NULL}
+};
+
+static const TParserStateActionItem actionTPS_InUnderscoreWordPart[] = {
+	{p_isEOF, 0, A_BINGO, TPS_Base, PARTUWORD, NULL},
+	{p_isalpha, 0, A_NEXT, TPS_InUnderscoreWordPart, 0, NULL},
+	{p_isspecial, 0, A_NEXT, TPS_InUnderscoreWordPart, 0, NULL},
+	{p_isdigit, 0, A_NEXT, TPS_InUnderscoreNumWordPart, 0, NULL},
+	{NULL, 0, A_BINGO, TPS_InParseUnderscore, PARTUWORD, NULL}
+};
+
+static const TParserStateActionItem actionTPS_InUnderscoreAsciiWordPart[] = {
+	{p_isEOF, 0, A_BINGO, TPS_Base, ASCIIPARTUWORD, NULL},
+	{p_isasclet, 0, A_NEXT, TPS_InUnderscoreAsciiWordPart, 0, NULL},
+	{p_isalpha, 0, A_NEXT, TPS_InUnderscoreWordPart, 0, NULL},
+	{p_isspecial, 0, A_NEXT, TPS_InUnderscoreWordPart, 0, NULL},
+	{p_isdigit, 0, A_NEXT, TPS_InUnderscoreNumWordPart, 0, NULL},
+	{NULL, 0, A_BINGO, TPS_InParseUnderscore, ASCIIPARTUWORD, NULL}
+};
+
+static const TParserStateActionItem actionTPS_InUnderscoreNumWordPart[] = {
+	{p_isEOF, 0, A_BINGO, TPS_Base, NUMPARTUWORD, NULL},
+	{p_isalnum, 0, A_NEXT, TPS_InUnderscoreNumWordPart, 0, NULL},
+	{p_isspecial, 0, A_NEXT, TPS_InUnderscoreNumWordPart, 0, NULL},
+	{p_iseqC, '.', A_NEXT, TPS_InUnderscoreNumWordPart, 0, NULL},
+	{NULL, 0, A_BINGO, TPS_InParseUnderscore, NUMPARTUWORD, NULL}
+};
+
+static const TParserStateActionItem actionTPS_InUnderscoreUnsignedInt[] = {
+	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
+	{p_isdigit, 0, A_NEXT, TPS_Null, 0, NULL},
+	{p_isalpha, 0, A_CLEAR, TPS_InUnderscoreNumWordPart, 0, NULL},
+	{p_isspecial, 0, A_CLEAR, TPS_InUnderscoreNumWordPart, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
@@ -1828,7 +1969,20 @@ static const TParserStateAction Actions[] = {
 	TPARSERSTATEACTION(TPS_InHyphenWordPart),
 	TPARSERSTATEACTION(TPS_InHyphenAsciiWordPart),
 	TPARSERSTATEACTION(TPS_InHyphenNumWordPart),
-	TPARSERSTATEACTION(TPS_InHyphenUnsignedInt)
+	TPARSERSTATEACTION(TPS_InHyphenUnsignedInt),
+	TPARSERSTATEACTION(TPS_InUnderscoreAsciiWordFirst),
+	TPARSERSTATEACTION(TPS_InUnderscoreAsciiWord),
+	TPARSERSTATEACTION(TPS_InUnderscoreWordFirst),
+	TPARSERSTATEACTION(TPS_InUnderscoreWord),
+	TPARSERSTATEACTION(TPS_InUnderscoreNumWordFirst),
+	TPARSERSTATEACTION(TPS_InUnderscoreNumWord),
+	TPARSERSTATEACTION(TPS_InUnderscoreDigitLookahead),
+	TPARSERSTATEACTION(TPS_InParseUnderscore),
+	TPARSERSTATEACTION(TPS_InParseUnderscoreUnderscore),
+	TPARSERSTATEACTION(TPS_InUnderscoreWordPart),
+	TPARSERSTATEACTION(TPS_InUnderscoreAsciiWordPart),
+	TPARSERSTATEACTION(TPS_InUnderscoreNumWordPart),
+	TPARSERSTATEACTION(TPS_InUnderscoreUnsignedInt)
 };
 
 
@@ -2047,14 +2201,20 @@ tsparser_end(PG_FUNCTION_ARGS)
 	PG_RETURN_VOID();
 }
 
+
+#define UNDERSCORED_PART(x) ( (x)==NUMPARTUWORD || (x)==ASCIIPARTUWORD || (x)==PARTUWORD )
+
+#define HYPHENATED(x)	( (x)==NUMHWORD || (x)==ASCIIHWORD || (x)==HWORD )
+#define UNDERSCORED(x)	( (x)==NUMUWORD || (x)==ASCIIUWORD || (x)==UWORD )
+
 #define LEAVETOKEN(x)	( (x)==SPACE )
-#define COMPLEXTOKEN(x) ( (x)==URL_T || (x)==NUMHWORD || (x)==ASCIIHWORD || (x)==HWORD )
+#define COMPLEXTOKEN(x) ( (x)==URL_T || HYPHENATED(x) || UNDERSCORED(x) )
 #define ENDPUNCTOKEN(x) ( (x)==SPACE )
 
 #define TS_IDIGNORE(x)	( (x)==TAG_T || (x)==PROTOCOL || (x)==SPACE || (x)==XMLENTITY )
 #define HLIDREPLACE(x)	( (x)==TAG_T )
-#define HLIDSKIP(x)		( (x)==URL_T || (x)==NUMHWORD || (x)==ASCIIHWORD || (x)==HWORD || (x)==HOST )
-#define XMLHLIDSKIP(x)	( (x)==URL_T || (x)==NUMHWORD || (x)==ASCIIHWORD || (x)==HWORD )
+#define HLIDSKIP(x)		( (x)==URL_T || HYPHENATED(x) || UNDERSCORED(x) || (x)==HOST )
+#define XMLHLIDSKIP(x)	( (x)==URL_T || HYPHENATED(x) || UNDERSCORED(x) )
 #define NONWORDTOKEN(x) ( (x)==SPACE || HLIDREPLACE(x) || HLIDSKIP(x) )
 #define NOENDTOKEN(x)	( NONWORDTOKEN(x) || (x)==SCIENTIFIC || (x)==VERSIONNUMBER || (x)==DECIMAL_T || (x)==SIGNEDINT || (x)==UNSIGNEDINT || TS_IDIGNORE(x) )
 
@@ -2190,14 +2350,24 @@ hlCover(HeadlineParsedText *prs, TSQuery query, int *p, int *q)
 static void
 mark_fragment(HeadlineParsedText *prs, int highlight, int startpos, int endpos)
 {
-	int			i;
+	int		i;
+	int		wholeword;
+
+	/* Check if we've found an underscored word */
+	for (i = startpos; i <= endpos; i++)
+		if (prs->words[i].item && UNDERSCORED(prs->words[i].type))
+			wholeword = 1;
 
 	for (i = startpos; i <= endpos; i++)
 	{
 		if (prs->words[i].item)
 			prs->words[i].selected = 1;
+
 		if (highlight == 0)
 		{
+			/* Don't skip underscored words in HighlightTop mode */
+			if (wholeword && UNDERSCORED(prs->words[i].type))
+				/* do nothing */;
 			if (HLIDREPLACE(prs->words[i].type))
 				prs->words[i].replace = 1;
 			else if (HLIDSKIP(prs->words[i].type))
@@ -2205,8 +2375,19 @@ mark_fragment(HeadlineParsedText *prs, int highlight, int startpos, int endpos)
 		}
 		else
 		{
+			/* Don't skip underscored words in HighlightTop mode */
+			if (wholeword && UNDERSCORED(prs->words[i].type))
+				/* do nothing */;
 			if (XMLHLIDSKIP(prs->words[i].type))
 				prs->words[i].skip = 1;
+		}
+
+		if (wholeword)
+		{
+			/* Skip underscored word parts and underscores in HighlightTop mode */
+			if ((UNDERSCORED_PART(prs->words[i].type)) ||
+				(LEAVETOKEN(prs->words[i].type) && prs->words[i].word[0] == '_'))
+					prs->words[i].skip = 1;
 		}
 
 		prs->words[i].in = (prs->words[i].repeated) ? 0 : 1;
@@ -2454,6 +2635,8 @@ mark_hl_words(HeadlineParsedText *prs, TSQuery query, int highlight,
 				poslen,
 				curlen;
 
+	int			wholeword = 0;
+
 	int			i;
 
 	if (highlight == 0)
@@ -2564,26 +2747,45 @@ mark_hl_words(HeadlineParsedText *prs, TSQuery query, int highlight,
 		beste = prs->curwords - 1;
 	}
 
+	/* Check if we've found an underscored word */
+	for (i = bestb; i <= beste; i++)
+		if (prs->words[i].item && UNDERSCORED(prs->words[i].type))
+			wholeword = 1;
+
 	for (i = bestb; i <= beste; i++)
 	{
 		if (prs->words[i].item)
 			prs->words[i].selected = 1;
+
 		if (highlight == 0)
 		{
 			if (HLIDREPLACE(prs->words[i].type))
 				prs->words[i].replace = 1;
+			/* Don't skip underscored words in HighlightTop mode */
+			else if (wholeword && UNDERSCORED(prs->words[i].type))
+				/* do nothing */;
 			else if (HLIDSKIP(prs->words[i].type))
 				prs->words[i].skip = 1;
 		}
 		else
 		{
-			if (XMLHLIDSKIP(prs->words[i].type))
+			/* Don't skip underscored words in HighlightTop mode */
+			if (wholeword && UNDERSCORED(prs->words[i].type))
+				/* do nothing */;
+			else if (XMLHLIDSKIP(prs->words[i].type))
 				prs->words[i].skip = 1;
+		}
+
+		if (wholeword)
+		{
+			/* Skip underscored word parts and underscores in HighlightTop mode */
+			if ((UNDERSCORED_PART(prs->words[i].type)) ||
+				(LEAVETOKEN(prs->words[i].type) && prs->words[i].word[0] == '_'))
+					prs->words[i].skip = 1;
 		}
 
 		prs->words[i].in = (prs->words[i].repeated) ? 0 : 1;
 	}
-
 }
 
 Datum

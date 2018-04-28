@@ -1,7 +1,7 @@
 CREATE EXTENSION pg_tsparser;
 SELECT * FROM ts_token_type('tsparser');
- tokid |      alias      |               description                
--------+-----------------+------------------------------------------
+ tokid |      alias      |                description                
+-------+-----------------+-------------------------------------------
      1 | asciiword       | Word, all ASCII
      2 | word            | Word, all letters
      3 | numword         | Word, letters and digits
@@ -25,7 +25,13 @@ SELECT * FROM ts_token_type('tsparser');
     21 | int             | Signed integer
     22 | uint            | Unsigned integer
     23 | entity          | XML entity
-(23 rows)
+    24 | uword_numpart   | Underscored word part, letters and digits
+    25 | uword_part      | Underscored word part, all letters
+    26 | uword_asciipart | Underscored word part, all ASCII
+    27 | numuword        | Underscored word, letters and digits
+    28 | asciiuword      | Underscored word part, all ASCII
+    29 | uword           | Underscored word part, all letters
+(29 rows)
 
 SELECT * FROM ts_parse('tsparser', '345 qwe@efd.r '' http://www.com/ http://aew.werc.ewr/?ad=qwe&dw 1aew.werc.ewr/?ad=qwe&dw 2aew.werc.ewr http://3aew.werc.ewr/?ad=qwe&dw http://4aew.werc.ewr http://5aew.werc.ewr:8100/?  ad=qwe&dw 6aew.werc.ewr:8100/?ad=qwe&dw 7aew.werc.ewr:8100/?ad=qwe&dw=%20%32 +4.0e-10 qwe qwe qwqwe 234.435 455 5.005 teodor@stack.net teodor@123-stack.net 123_teodor@stack.net 123-teodor@stack.net qwe-wer asdf <fr>qwer jf sdjk<we hjwer <werrwe> ewr1> ewri2 <a href="qwe<qwe>">
 /usr/local/fff /awdf/dwqe/4325 rewt/ewr wefjn /wqe-324/ewr gist.h gist.h.c gist.c. readline 4.2 4.2. 4.2, readline-4.2 readline-4.2. 234
@@ -199,40 +205,184 @@ CREATE TEXT SEARCH CONFIGURATION english_ts (
     PARSER = tsparser
 );
 ALTER TEXT SEARCH CONFIGURATION english_ts
-    ADD MAPPING FOR email, file, float, host, hword_numpart, int,
-    numhword, numword, sfloat, uint, url, url_path, version
+    ADD MAPPING FOR
+	numword,
+		numhword, hword_numpart,
+		numuword, uword_numpart,
+	url, url_path, host, email,
+	float, sfloat,
+	int, uint,
+	version,
+	file
     WITH simple;
 ALTER TEXT SEARCH CONFIGURATION english_ts
-    ADD MAPPING FOR asciiword, asciihword, hword_asciipart,
-    word, hword, hword_part
+    ADD MAPPING FOR
+	asciiword,
+		asciihword, hword_asciipart,
+		asciiuword, uword_asciipart,
+    word,
+		hword, hword_part,
+		uword, uword_part
     WITH english_stem;
-SELECT to_tsvector('english_ts', 'pg_trgm');
-         to_tsvector         
------------------------------
- 'pg':2 'pg_trgm':1 'trgm':3
-(1 row)
-
-SELECT to_tsvector('english_ts', '12_abc');
-        to_tsvector        
----------------------------
- '12':2 '12_abc':1 'abc':3
-(1 row)
-
-SELECT to_tsvector('english_ts', '12-abc');
-        to_tsvector        
----------------------------
- '12':2 '12-abc':1 'abc':3
-(1 row)
-
-SELECT to_tsvector('english_ts', 'test.com');
-          to_tsvector          
--------------------------------
- 'com':3 'test':2 'test.com':1
-(1 row)
-
+/* test urls */
 SELECT to_tsvector('english_ts', 'test2.com');
            to_tsvector           
 ---------------------------------
  'com':3 'test2':2 'test2.com':1
+(1 row)
+
+SELECT * FROM ts_debug('english_ts', 'test.com');
+   alias   |   description   |  token   |  dictionaries  |  dictionary  |  lexemes   
+-----------+-----------------+----------+----------------+--------------+------------
+ host      | Host            | test.com | {simple}       | simple       | {test.com}
+ asciiword | Word, all ASCII | test     | {english_stem} | english_stem | {test}
+ blank     | Space symbols   | .        | {}             |              | 
+ asciiword | Word, all ASCII | com      | {english_stem} | english_stem | {com}
+(4 rows)
+
+/* test hyphens */
+SELECT to_tsvector('english_ts', '12-abc, ill-posed');
+                      to_tsvector                       
+--------------------------------------------------------
+ '12':2 '12-abc':1 'abc':3 'ill':5 'ill-pos':4 'pose':6
+(1 row)
+
+SELECT * FROM ts_debug('english_ts', 'pg-index, 12-pg, pg-12, 123-456, abc-def-egh');
+      alias      |               description                |    token    |  dictionaries  |  dictionary  |    lexemes    
+-----------------+------------------------------------------+-------------+----------------+--------------+---------------
+ asciihword      | Hyphenated word, all ASCII               | pg-index    | {english_stem} | english_stem | {pg-index}
+ hword_asciipart | Hyphenated word part, all ASCII          | pg          | {english_stem} | english_stem | {pg}
+ blank           | Space symbols                            | -           | {}             |              | 
+ hword_asciipart | Hyphenated word part, all ASCII          | index       | {english_stem} | english_stem | {index}
+ blank           | Space symbols                            | ,           | {}             |              | 
+ numhword        | Hyphenated word, letters and digits      | 12-pg       | {simple}       | simple       | {12-pg}
+ hword_numpart   | Hyphenated word part, letters and digits | 12          | {simple}       | simple       | {12}
+ blank           | Space symbols                            | -           | {}             |              | 
+ hword_asciipart | Hyphenated word part, all ASCII          | pg          | {english_stem} | english_stem | {pg}
+ blank           | Space symbols                            | ,           | {}             |              | 
+ numhword        | Hyphenated word, letters and digits      | pg-12       | {simple}       | simple       | {pg-12}
+ hword_asciipart | Hyphenated word part, all ASCII          | pg          | {english_stem} | english_stem | {pg}
+ blank           | Space symbols                            | -           | {}             |              | 
+ hword_numpart   | Hyphenated word part, letters and digits | 12          | {simple}       | simple       | {12}
+ blank           | Space symbols                            | ,           | {}             |              | 
+ numhword        | Hyphenated word, letters and digits      | 123-456     | {simple}       | simple       | {123-456}
+ hword_numpart   | Hyphenated word part, letters and digits | 123         | {simple}       | simple       | {123}
+ blank           | Space symbols                            | -           | {}             |              | 
+ hword_numpart   | Hyphenated word part, letters and digits | 456         | {simple}       | simple       | {456}
+ blank           | Space symbols                            | ,           | {}             |              | 
+ asciihword      | Hyphenated word, all ASCII               | abc-def-egh | {english_stem} | english_stem | {abc-def-egh}
+ hword_asciipart | Hyphenated word part, all ASCII          | abc         | {english_stem} | english_stem | {abc}
+ blank           | Space symbols                            | -           | {}             |              | 
+ hword_asciipart | Hyphenated word part, all ASCII          | def         | {english_stem} | english_stem | {def}
+ blank           | Space symbols                            | -           | {}             |              | 
+ hword_asciipart | Hyphenated word part, all ASCII          | egh         | {english_stem} | english_stem | {egh}
+(26 rows)
+
+/* test underscores */
+SELECT to_tsvector('english_ts', '12_abc, pg_class');
+                       to_tsvector                       
+---------------------------------------------------------
+ '12':2 '12_abc':1 'abc':3 'class':6 'pg':5 'pg_class':4
+(1 row)
+
+SELECT * FROM ts_debug('english_ts', 'pg_class, 12_pg, pg_12, 123_456, abc_def_egh');
+      alias      |                description                |    token    |  dictionaries  |  dictionary  |    lexemes    
+-----------------+-------------------------------------------+-------------+----------------+--------------+---------------
+ asciiuword      | Underscored word part, all ASCII          | pg_class    | {english_stem} | english_stem | {pg_class}
+ uword_asciipart | Underscored word part, all ASCII          | pg          | {english_stem} | english_stem | {pg}
+ blank           | Space symbols                             | _           | {}             |              | 
+ uword_asciipart | Underscored word part, all ASCII          | class       | {english_stem} | english_stem | {class}
+ blank           | Space symbols                             | ,           | {}             |              | 
+ numuword        | Underscored word, letters and digits      | 12_pg       | {simple}       | simple       | {12_pg}
+ uword_numpart   | Underscored word part, letters and digits | 12          | {simple}       | simple       | {12}
+ blank           | Space symbols                             | _           | {}             |              | 
+ uword_asciipart | Underscored word part, all ASCII          | pg          | {english_stem} | english_stem | {pg}
+ blank           | Space symbols                             | ,           | {}             |              | 
+ numuword        | Underscored word, letters and digits      | pg_12       | {simple}       | simple       | {pg_12}
+ uword_asciipart | Underscored word part, all ASCII          | pg          | {english_stem} | english_stem | {pg}
+ blank           | Space symbols                             | _           | {}             |              | 
+ uword_numpart   | Underscored word part, letters and digits | 12          | {simple}       | simple       | {12}
+ blank           | Space symbols                             | ,           | {}             |              | 
+ numuword        | Underscored word, letters and digits      | 123_456     | {simple}       | simple       | {123_456}
+ uword_numpart   | Underscored word part, letters and digits | 123         | {simple}       | simple       | {123}
+ blank           | Space symbols                             | _           | {}             |              | 
+ uword_numpart   | Underscored word part, letters and digits | 456         | {simple}       | simple       | {456}
+ blank           | Space symbols                             | ,           | {}             |              | 
+ asciiuword      | Underscored word part, all ASCII          | abc_def_egh | {english_stem} | english_stem | {abc_def_egh}
+ uword_asciipart | Underscored word part, all ASCII          | abc         | {english_stem} | english_stem | {abc}
+ blank           | Space symbols                             | _           | {}             |              | 
+ uword_asciipart | Underscored word part, all ASCII          | def         | {english_stem} | english_stem | {def}
+ blank           | Space symbols                             | _           | {}             |              | 
+ uword_asciipart | Underscored word part, all ASCII          | egh         | {english_stem} | english_stem | {egh}
+(26 rows)
+
+/* test combinations */
+SELECT to_tsvector('english_ts', 'pg_class-oriented approach');
+                        to_tsvector                        
+-----------------------------------------------------------
+ 'approach':5 'class':3 'orient':4 'pg':2 'pg_class-ori':1
+(1 row)
+
+SELECT to_tsvector('english_ts', 'pg_class-oriented approach') @@ to_tsquery('english_ts', 'pg_class');
+ ?column? 
+----------
+ f
+(1 row)
+
+SELECT to_tsvector('english_ts', 'pg_class-oriented approach') @@ to_tsquery('english_ts', 'pg_class-oriented');
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT to_tsvector('english_ts', 'Those dark before-pg_class-was-invented ages');
+                               to_tsvector                                
+--------------------------------------------------------------------------
+ 'age':9 'before-pg_class-was-inv':3 'class':6 'dark':2 'invent':8 'pg':5
+(1 row)
+
+SELECT to_tsvector('english_ts', 'Those dark before-pg_class-was-invented ages') @@ to_tsquery('english_ts', 'pg_class');
+ ?column? 
+----------
+ f
+(1 row)
+
+SELECT to_tsvector('english_ts', 'Those dark before-pg_class-was-invented ages') @@ to_tsquery('english_ts', 'before-pg_class');
+ ?column? 
+----------
+ f
+(1 row)
+
+SELECT to_tsvector('english_ts', 'Those dark before-pg_class-was-invented ages') @@ to_tsquery('english_ts', 'before-pg_class-was-invented');
+ ?column? 
+----------
+ t
+(1 row)
+
+/* full-featured test */
+SELECT ts_headline('english_ts',
+				   'I love pg_class, pg_index, pg-pool, pg and classes so much I _ cannot _ contain myself',
+				   to_tsquery('english_ts', 'pg_class'),
+				   'HighlightAll=true');
+                                                    ts_headline                                                     
+--------------------------------------------------------------------------------------------------------------------
+ I love <b>pg_class</b>, pg_index, <b>pg</b>-pool, <b>pg</b> and <b>classes</b> so much I _ cannot _ contain myself
+(1 row)
+
+SELECT ts_headline('english_ts',
+				   'This is a new pg_class-oriented kind of approach (also suitable for pg_index)',
+				   to_tsquery('english_ts', 'pg_class'));
+                                            ts_headline                                            
+---------------------------------------------------------------------------------------------------
+ This is a new <b>pg</b>_<b>class</b>-oriented kind of approach (also suitable for <b>pg</b>_index
+(1 row)
+
+SELECT ts_headline('english_ts',
+				   'It''s hard to provide complete tests for pg_class, pg_index, pg-pool etc',
+				   to_tsquery('english_ts', 'pg_class'),
+				   'HighlightAll=false, MinWords=3, MaxWords=4');
+        ts_headline        
+---------------------------
+ <b>pg_class</b>, pg_index
 (1 row)
 
